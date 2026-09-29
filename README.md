@@ -60,7 +60,7 @@ Stage 13  AIOS Linux
 Stage 14  Hardening
 ```
 
-The initial implementation will run as a desktop application on Windows. Core functionality will be separated from the UI so that the same runtime can later be adapted to Linux.
+The initial implementation runs as a desktop application on Windows. Core functionality is separated from the UI so the same runtime can later be adapted to Linux.
 
 ## Project Structure
 
@@ -68,27 +68,32 @@ The initial implementation will run as a desktop application on Windows. Core fu
 apps/
   desktop/          AIOS desktop application
 
-core/
-  orchestrator/     Task planning and coordination
-  processes/        AI Process lifecycle
-  models/           Model providers and routing
-  memory/           AIOS memory systems
-  tools/            Tool interfaces and execution
-  permissions/      Capabilities and access control
-  verification/     Verification and evidence
-  git/              Git and repository integration
+  desktop/src/      React control-plane UI
+  desktop/src-tauri/
+    src/core/       Rust runtime and state model
 
-protocol/            Internal communication protocols
-sandbox/             Agent isolation
-docs/                Architecture and technical documentation
-tests/               Cross-component tests
+docs/               Architecture and roadmap documentation
 ```
+
+The future architecture will add dedicated modules for projects, models, tools, permissions, verification, memory, orchestration and sandboxing as those roadmap stages are implemented.
 
 ## Current Status
 
-**Stage 0 — Foundation**
+**Stage 2 — AIOS Core (initial implementation)**
 
-The repository and development architecture are being established.
+The repository now contains a functional desktop-to-Rust runtime path:
+
+* React + TypeScript control-plane UI
+* Tauri 2 desktop shell
+* Rust runtime state machine
+* Runtime start/stop commands
+* AI process registration
+* Runtime event stream to the frontend
+* Bounded in-memory event history
+* Rust unit tests for runtime/process invariants
+* CI checks for the frontend build and Rust validation
+
+The runtime deliberately does **not** execute terminal, filesystem, model or network actions yet. Those capabilities are introduced later behind explicit boundaries.
 
 ## Principles
 
