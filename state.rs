@@ -168,7 +168,7 @@ fn snapshot_from(inner: &RuntimeInner) -> RuntimeSnapshot {
         .unwrap_or(0);
 
     RuntimeSnapshot {
-        version: "0.2.0",
+        version: "0.3.0",
         status: inner.status,
         started_at: inner.started_at,
         uptime_seconds,

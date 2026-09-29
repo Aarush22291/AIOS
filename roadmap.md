@@ -19,10 +19,10 @@ AIOS is developed incrementally. Each stage should produce a working, testable r
 * [x] React + TypeScript interface
 * [x] AIOS navigation shell
 * [x] Runtime/process interface
-* [ ] Projects interface
+* [x] Projects interface
 * [ ] Settings
 
-**Result:** AIOS launches as a desktop application.
+**Result:** AIOS launches as a desktop application with its primary control-plane surfaces.
 
 ## Stage 2 — AIOS Core
 
@@ -39,11 +39,11 @@ AIOS is developed incrementally. Each stage should produce a working, testable r
 
 ## Stage 3 — Projects
 
-* [ ] Project registration
-* [ ] Project metadata
-* [ ] Workspace management
-* [ ] Repository detection
-* [ ] Project state
+* [x] Project registration
+* [x] Project metadata
+* [x] Workspace management
+* [x] Repository detection
+* [x] Project state
 
 **Result:** AIOS understands the projects it operates on.
 

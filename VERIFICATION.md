@@ -1,28 +1,38 @@
 # Verification Record
 
-## Performed in the ChatGPT execution environment
+## Live repository inspection
+
+The current `main` branch was inspected before generating this patch.
+
+Observed state:
+
+- Stage 2 merge commit exists: `52b11a8aff1745851dfb5b58f971dde20b57659c`.
+- The intended Stage 2 implementation is present as duplicate root files.
+- The real files under `apps/desktop/src` and `apps/desktop/src-tauri/src` remained the original Tauri starter.
+- The real `.github/workflows/ci.yml` remained the original repository-only check.
+
+## Performed in the preparation environment
 
 ### Frontend TypeScript
 
-`apps/desktop/src/App.tsx` was type-checked with TypeScript 5.8.3 using strict mode and lightweight module stubs for React/Tauri APIs.
+The Stage 3 `App.tsx` was type-checked with strict TypeScript using lightweight React/Tauri module stubs.
 
 Result: **PASS**
 
-### Repository structure
+### Patch structure
 
-All expected Stage 2 overlay files were created and their paths were checked.
+All intended nested Stage 2/Stage 3 paths exist in the overlay, and the repair script targets only the nine accidental root duplicates identified during live repository inspection.
 
 Result: **PASS**
 
-## Not executable in this environment
+### Rust
 
-The execution environment does not have the Rust toolchain (`cargo`/`rustc`) installed, and it has no network access for cloning/installing the repository dependencies.
+Not executed in the preparation environment because `cargo` and `rustc` are unavailable there.
 
-Therefore these were **not** claimed as locally executed:
+Required local/CI checks:
 
 - `cargo test --lib`
 - `cargo check`
 - `npm ci`
-- the full Tauri desktop build
-
-The CI workflow included in this patch runs those checks on GitHub Actions after you push the changes.
+- `npm run build`
+- `npm run tauri dev`
