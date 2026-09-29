@@ -7,19 +7,20 @@ on:
   pull_request:
 
 jobs:
-  repository-and-app-check:
+  frontend-and-rust:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check repository foundation
+      - name: Check repository
         run: |
           test -f README.md
           test -f CONTRIBUTING.md
           test -f SECURITY.md
           test -f docs/roadmap.md
+          test -f apps/desktop/package-lock.json
           echo "AIOS repository structure OK"
 
       - name: Setup Node
@@ -33,17 +34,17 @@ jobs:
         working-directory: apps/desktop
         run: npm ci
 
-      - name: TypeScript and Vite build
+      - name: Build frontend
         working-directory: apps/desktop
         run: npm run build
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust unit tests
+      - name: Test Rust core
         working-directory: apps/desktop/src-tauri
         run: cargo test --lib
 
-      - name: Rust check
+      - name: Check Rust
         working-directory: apps/desktop/src-tauri
         run: cargo check
