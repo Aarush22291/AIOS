@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-process"
+description = "Enables the create_process command without any pre-configured scope."
+commands.allow = ["create_process"]
+
+[[permission]]
+identifier = "deny-create-process"
+description = "Denies the create_process command without any pre-configured scope."
+commands.deny = ["create_process"]
