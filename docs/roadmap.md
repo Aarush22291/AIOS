@@ -49,16 +49,18 @@ AIOS is developed incrementally. Each stage should produce a working, testable r
 
 ## Stage 4 — AI Processes
 
-* [ ] Process creation beyond registration
-* [ ] Goals
-* [ ] Process state
-* [ ] Lifecycle management
-* [ ] Resource configuration
-* [ ] Process events
+* [x] Process creation beyond registration
+* [x] Goals
+* [x] Process state
+* [x] Lifecycle management
+* [x] Resource configuration
+* [x] Process events
 
-**Result:** AIOS can create and manage its first AI Process.
+**Result:** AIOS can create and manage its first stateful AI Process. Execution remains intentionally deferred until the model and tool stages.
 
 ## Stage 5 — Models
+
+Stage 5 attaches model providers to these process objects without changing their lifecycle/security boundaries.
 
 * [ ] Model provider interface
 * [ ] Local model support
