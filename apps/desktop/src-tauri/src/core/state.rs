@@ -1,9 +1,48 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const EVENT_HISTORY_LIMIT: usize = 50;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProcessResourceConfig {
+    pub max_cpu_percent: Option<u8>,
+    pub max_memory_mb: Option<u64>,
+    pub max_runtime_seconds: Option<u64>,
+}
+
+impl Default for ProcessResourceConfig {
+    fn default() -> Self {
+        Self {
+            max_cpu_percent: None,
+            max_memory_mb: None,
+            max_runtime_seconds: None,
+        }
+    }
+}
+
+impl ProcessResourceConfig {
+    fn validate(&self) -> Result<(), String> {
+        if let Some(cpu) = self.max_cpu_percent {
+            if !(1..=100).contains(&cpu) {
+                return Err("Max CPU must be between 1 and 100 percent".to_string());
+            }
+        }
+        if let Some(memory) = self.max_memory_mb {
+            if memory == 0 {
+                return Err("Max memory must be greater than 0 MB".to_string());
+            }
+        }
+        if let Some(runtime) = self.max_runtime_seconds {
+            if runtime == 0 {
+                return Err("Max runtime must be greater than 0 seconds".to_string());
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,7 +51,11 @@ pub struct ProcessInfo {
     pub name: String,
     pub goal: String,
     pub status: ProcessStatus,
+    pub resources: ProcessResourceConfig,
     pub created_at: u64,
+    pub started_at: Option<u64>,
+    pub stopped_at: Option<u64>,
+    pub updated_at: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -20,7 +63,9 @@ pub struct ProcessInfo {
 pub enum ProcessStatus {
     Created,
     Running,
+    Paused,
     Stopped,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -112,19 +157,43 @@ impl RuntimeState {
             return Ok(snapshot_from(&inner));
         }
 
+        let now = now_seconds();
         inner.status = RuntimeStatus::Stopped;
         inner.started_at = None;
+
+        let process_ids: Vec<String> = inner
+            .processes
+            .iter()
+            .filter(|process| process.status != ProcessStatus::Stopped)
+            .map(|process| process.id.clone())
+            .collect();
+
         for process in &mut inner.processes {
             if process.status != ProcessStatus::Stopped {
                 process.status = ProcessStatus::Stopped;
+                process.stopped_at = Some(now);
+                process.updated_at = now;
             }
         }
+
         push_event(&mut inner, "runtime.stopped", "AIOS runtime stopped");
+        for process_id in process_ids {
+            push_event(
+                &mut inner,
+                "process.stopped",
+                &format!("Process {process_id} stopped with runtime"),
+            );
+        }
 
         Ok(snapshot_from(&inner))
     }
 
-    pub fn create_process(&self, name: String, goal: String) -> Result<(ProcessInfo, RuntimeSnapshot), String> {
+    pub fn create_process(
+        &self,
+        name: String,
+        goal: String,
+        resources: ProcessResourceConfig,
+    ) -> Result<(ProcessInfo, RuntimeSnapshot), String> {
         let name = name.trim().to_string();
         let goal = goal.trim().to_string();
 
@@ -134,6 +203,7 @@ impl RuntimeState {
         if goal.is_empty() {
             return Err("Process goal cannot be empty".to_string());
         }
+        resources.validate()?;
 
         let mut inner = self.inner.lock().map_err(|_| "runtime state lock poisoned".to_string())?;
 
@@ -141,12 +211,17 @@ impl RuntimeState {
             return Err("AIOS runtime is not running".to_string());
         }
 
+        let now = now_seconds();
         let process = ProcessInfo {
             id: format!("proc-{:04}", inner.next_process_id),
             name,
             goal,
             status: ProcessStatus::Created,
-            created_at: now_seconds(),
+            resources,
+            created_at: now,
+            started_at: None,
+            stopped_at: None,
+            updated_at: now,
         };
         inner.next_process_id += 1;
 
@@ -159,6 +234,98 @@ impl RuntimeState {
 
         Ok((process, snapshot_from(&inner)))
     }
+
+    pub fn start_process(&self, id: &str) -> Result<RuntimeSnapshot, String> {
+        let mut inner = self.lock_running()?;
+        let now = now_seconds();
+        let process = find_process_mut(&mut inner, id)?;
+
+        match process.status {
+            ProcessStatus::Created | ProcessStatus::Stopped => {
+                process.status = ProcessStatus::Running;
+                process.started_at = Some(now);
+                process.stopped_at = None;
+                process.updated_at = now;
+                let name = process.name.clone();
+                push_event(&mut inner, "process.started", &format!("Started process {name}"));
+                Ok(snapshot_from(&inner))
+            }
+            ProcessStatus::Running => Ok(snapshot_from(&inner)),
+            ProcessStatus::Paused => Err(format!("Process '{id}' is paused; resume it instead")),
+            ProcessStatus::Failed => Err(format!("Process '{id}' failed and cannot be restarted")),
+        }
+    }
+
+    pub fn pause_process(&self, id: &str) -> Result<RuntimeSnapshot, String> {
+        let mut inner = self.lock_running()?;
+        let process = find_process_mut(&mut inner, id)?;
+
+        if process.status != ProcessStatus::Running {
+            return Err(format!("Process '{id}' can only be paused while running"));
+        }
+
+        let now = now_seconds();
+        process.status = ProcessStatus::Paused;
+        process.updated_at = now;
+        let name = process.name.clone();
+        push_event(&mut inner, "process.paused", &format!("Paused process {name}"));
+
+        Ok(snapshot_from(&inner))
+    }
+
+    pub fn resume_process(&self, id: &str) -> Result<RuntimeSnapshot, String> {
+        let mut inner = self.lock_running()?;
+        let process = find_process_mut(&mut inner, id)?;
+
+        if process.status != ProcessStatus::Paused {
+            return Err(format!("Process '{id}' can only be resumed while paused"));
+        }
+
+        let now = now_seconds();
+        process.status = ProcessStatus::Running;
+        process.updated_at = now;
+        let name = process.name.clone();
+        push_event(&mut inner, "process.resumed", &format!("Resumed process {name}"));
+
+        Ok(snapshot_from(&inner))
+    }
+
+    pub fn stop_process(&self, id: &str) -> Result<RuntimeSnapshot, String> {
+        let mut inner = self.lock_running()?;
+        let process = find_process_mut(&mut inner, id)?;
+
+        if process.status == ProcessStatus::Stopped {
+            return Ok(snapshot_from(&inner));
+        }
+
+        let now = now_seconds();
+        process.status = ProcessStatus::Stopped;
+        process.stopped_at = Some(now);
+        process.updated_at = now;
+        let name = process.name.clone();
+        push_event(&mut inner, "process.stopped", &format!("Stopped process {name}"));
+
+        Ok(snapshot_from(&inner))
+    }
+
+    fn lock_running(&self) -> Result<std::sync::MutexGuard<'_, RuntimeInner>, String> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| "runtime state lock poisoned".to_string())?;
+        if inner.status != RuntimeStatus::Running {
+            return Err("AIOS runtime is not running".to_string());
+        }
+        Ok(inner)
+    }
+}
+
+fn find_process_mut<'a>(inner: &'a mut RuntimeInner, id: &str) -> Result<&'a mut ProcessInfo, String> {
+    inner
+        .processes
+        .iter_mut()
+        .find(|process| process.id == id)
+        .ok_or_else(|| format!("Process '{id}' not found"))
 }
 
 fn snapshot_from(inner: &RuntimeInner) -> RuntimeSnapshot {
@@ -168,7 +335,7 @@ fn snapshot_from(inner: &RuntimeInner) -> RuntimeSnapshot {
         .unwrap_or(0);
 
     RuntimeSnapshot {
-        version: "0.3.0",
+        version: "0.4.0",
         status: inner.status,
         started_at: inner.started_at,
         uptime_seconds,
@@ -223,13 +390,13 @@ mod tests {
     fn processes_require_running_runtime() {
         let state = RuntimeState::new();
         let error = state
-            .create_process("Planner".to_string(), "Plan the next task".to_string())
+            .create_process("Planner".to_string(), "Plan the next task".to_string(), ProcessResourceConfig::default())
             .expect_err("process creation should require a running runtime");
         assert!(error.contains("not running"));
 
         state.start().expect("runtime should start");
         let (process, snapshot) = state
-            .create_process("Planner".to_string(), "Plan the next task".to_string())
+            .create_process("Planner".to_string(), "Plan the next task".to_string(), ProcessResourceConfig::default())
             .expect("process should be created");
         assert_eq!(process.id, "proc-0001");
         assert_eq!(process.status, ProcessStatus::Created);
@@ -243,10 +410,57 @@ mod tests {
         state.start().expect("runtime should start");
 
         assert!(state
-            .create_process(" ".to_string(), "goal".to_string())
+            .create_process(" ".to_string(), "goal".to_string(), ProcessResourceConfig::default())
             .is_err());
         assert!(state
-            .create_process("name".to_string(), " ".to_string())
+            .create_process("name".to_string(), " ".to_string(), ProcessResourceConfig::default())
             .is_err());
+        assert!(state
+            .create_process(
+                "name".to_string(),
+                "goal".to_string(),
+                ProcessResourceConfig {
+                    max_cpu_percent: Some(101),
+                    ..ProcessResourceConfig::default()
+                },
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn process_lifecycle_transitions_are_enforced() {
+        let state = RuntimeState::new();
+        state.start().expect("runtime should start");
+        let (process, _) = state
+            .create_process("Planner".to_string(), "Plan the next task".to_string(), ProcessResourceConfig::default())
+            .expect("process should be created");
+
+        let snapshot = state.start_process(&process.id).expect("process should start");
+        assert_eq!(snapshot.processes[0].status, ProcessStatus::Running);
+
+        let snapshot = state.pause_process(&process.id).expect("process should pause");
+        assert_eq!(snapshot.processes[0].status, ProcessStatus::Paused);
+
+        let snapshot = state.resume_process(&process.id).expect("process should resume");
+        assert_eq!(snapshot.processes[0].status, ProcessStatus::Running);
+
+        let snapshot = state.stop_process(&process.id).expect("process should stop");
+        assert_eq!(snapshot.processes[0].status, ProcessStatus::Stopped);
+        assert!(snapshot.processes[0].stopped_at.is_some());
+        assert_eq!(snapshot.events[0].kind, "process.stopped");
+    }
+
+    #[test]
+    fn stopping_runtime_stops_active_processes() {
+        let state = RuntimeState::new();
+        state.start().expect("runtime should start");
+        let (process, _) = state
+            .create_process("Planner".to_string(), "Plan the next task".to_string(), ProcessResourceConfig::default())
+            .expect("process should be created");
+        state.start_process(&process.id).expect("process should start");
+
+        let snapshot = state.stop().expect("runtime should stop");
+        assert_eq!(snapshot.processes[0].status, ProcessStatus::Stopped);
+        assert!(snapshot.processes[0].stopped_at.is_some());
     }
 }
