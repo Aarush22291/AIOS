@@ -230,7 +230,7 @@ fn emit_snapshot(app: &AppHandle, snapshot: &ProjectsSnapshot) -> Result<(), Str
 
 fn snapshot_from(inner: &ProjectsInner) -> ProjectsSnapshot {
     ProjectsSnapshot {
-        version: "0.3.0",
+        version: "0.4.0",
         active_project_id: inner.active_project_id.clone(),
         project_count: inner.projects.len(),
         projects: inner.projects.clone(),
