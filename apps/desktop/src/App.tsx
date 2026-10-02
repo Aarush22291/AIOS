@@ -9,6 +9,12 @@ type ProcessStatus = "created" | "running" | "paused" | "stopped" | "failed";
 type ProjectStatus = "ready" | "missing";
 type ProviderKind = "local" | "cloud";
 type ModelRole = "general" | "planner" | "coder" | "reviewer";
+type ModelProviderInfo = { id: string; name: string; kind: ProviderKind; endpoint: string; authEnv: string | null; enabled: boolean; builtIn: boolean };
+type ModelInfo = { id: string; providerId: string; name: string; roles: ModelRole[]; contextWindow: number | null; enabled: boolean };
+type ModelSelection = { role: ModelRole; providerId: string; modelId: string };
+type ModelsSnapshot = { version: string; providerCount: number; modelCount: number; providers: ModelProviderInfo[]; models: ModelInfo[]; defaults: ModelSelection[] };
+type ProviderKind = "local" | "cloud";
+type ModelRole = "general" | "planner" | "coder" | "reviewer";
 type InputChange = { currentTarget: HTMLInputElement };
 type TextareaChange = { currentTarget: HTMLTextAreaElement };
 
@@ -63,6 +69,7 @@ type ModelsSnapshot = {
 const RUNTIME_EVENT = "aios:runtime";
 const PROJECTS_EVENT = "aios:projects";
 const MODELS_EVENT = "aios:models";
+const MODELS_EVENT = "aios:models";
 const MODEL_ROLES: ModelRole[] = ["general", "planner", "coder", "reviewer"];
 
 const EMPTY_RUNTIME: RuntimeSnapshot = {
@@ -80,6 +87,7 @@ function App() {
   const [view, setView] = useState<View>("overview");
   const [runtime, setRuntime] = useState<RuntimeSnapshot>(EMPTY_RUNTIME);
   const [projects, setProjects] = useState<ProjectsSnapshot>(EMPTY_PROJECTS);
+  const [models, setModels] = useState<ModelsSnapshot>(EMPTY_MODELS);
   const [models, setModels] = useState<ModelsSnapshot>(EMPTY_MODELS);
   const [projectName, setProjectName] = useState("");
   const [workspace, setWorkspace] = useState("");
@@ -105,6 +113,7 @@ function App() {
   useEffect(() => {
     let stopRuntimeListener: UnlistenFn | undefined;
     let stopProjectsListener: UnlistenFn | undefined;
+    let stopModelsListener: UnlistenFn | undefined;
     let stopModelsListener: UnlistenFn | undefined;
     void (async () => {
       try {
@@ -296,6 +305,7 @@ function App() {
         {error && <div className="error-banner">{error}</div>}
         {view === "overview" && <Overview runtime={runtime} runtimeRunning={runtimeRunning} uptime={uptime} activeProject={activeProject} projectCount={projects.projectCount} onProjects={() => setView("projects")} onProcesses={() => setView("processes")} />}
         {view === "projects" && <ProjectsPage projects={projects} projectName={projectName} workspace={workspace} busy={busy} onProjectName={setProjectName} onWorkspace={setWorkspace} onSubmit={handleRegisterProject} onActivate={(id) => void setActiveProject(id)} onRemove={(id) => void removeProject(id)} onRefresh={() => void refreshProjects()} />}
+        {view === "models" && <ModelsPage models={models} onRefresh={() => void (async () => setModels(await invoke<ModelsSnapshot>("get_models")))()} onRemoveProvider={(id) => void (async () => { try { setModels(await invoke<ModelsSnapshot>("remove_model_provider", { id })); } catch (cause) { setError(String(cause)); } })()} onRemoveModel={(providerId, modelId) => void (async () => { try { setModels(await invoke<ModelsSnapshot>("remove_model", { providerId, modelId })); } catch (cause) { setError(String(cause)); } })()} onSetDefault={(role, providerId, modelId) => void (async () => { try { setModels(await invoke<ModelsSnapshot>("set_model_default", { role, providerId, modelId })); } catch (cause) { setError(String(cause)); } })()} />}
         {view === "processes" && <ProcessesPage runtime={runtime} runtimeRunning={runtimeRunning} processName={processName} processGoal={processGoal} maxCpuPercent={maxCpuPercent} maxMemoryMb={maxMemoryMb} maxRuntimeSeconds={maxRuntimeSeconds} busy={busy} onName={setProcessName} onGoal={setProcessGoal} onMaxCpuPercent={setMaxCpuPercent} onMaxMemoryMb={setMaxMemoryMb} onMaxRuntimeSeconds={setMaxRuntimeSeconds} onSubmit={handleCreateProcess} onTransition={(command, id) => void transitionProcess(command, id)} />}
         {view === "models" && <ModelsPage
           models={models}
@@ -462,6 +472,32 @@ function ModelsPage({
           <div className="provider-model-list">{models.models.filter((model) => model.providerId === provider.id).map((model) => <div className="registered-model-row" key={model.id}><div><strong>{model.name}</strong><span>{model.id} · {model.roles.join(", ")}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} ctx` : ""}</span></div><button className="danger-button" onClick={() => onRemoveModel(provider.id, model.id)}>Remove</button></div>)}{models.models.every((model) => model.providerId !== provider.id) && <div className="empty-state small">No models registered for this provider.</div>}</div>
         </div>)}
       </div>
+    </div>
+  </section>;
+}
+
+function ModelsPage({ models, onRefresh, onRemoveProvider, onRemoveModel, onSetDefault }: {
+  models: ModelsSnapshot;
+  onRefresh: () => void;
+  onRemoveProvider: (id: string) => void;
+  onRemoveModel: (providerId: string, modelId: string) => void;
+  onSetDefault: (role: ModelRole, providerId: string, modelId: string) => void;
+}) {
+  const [role, setRole] = useState<ModelRole>("general");
+  const matching = models.models.filter((model) => model.enabled && model.roles.includes(role));
+  const current = models.defaults.find((item) => item.role === role);
+  const providerName = new Map(models.providers.map((provider) => [provider.id, provider.name]));
+  return <section className="models-layout">
+    <div className="panel-card compact-card">
+      <div className="section-header"><div><div className="panel-label">Model routing</div><h2>Role defaults</h2></div><button className="secondary-button small-button" onClick={onRefresh}>Refresh</button></div>
+      <label className="model-select-label">Role<select value={role} onChange={(event) => setRole(event.currentTarget.value as ModelRole)}>{["general","planner","coder","reviewer"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+      <div className="routing-current">{current ? `${providerName.get(current.providerId) ?? current.providerId} / ${current.modelId}` : "No default model selected"}</div>
+      <div className="routing-list">{matching.map((model) => <button key={`${model.providerId}::${model.id}`} className={`routing-option ${current?.providerId === model.providerId && current.modelId === model.id ? "selected" : ""}`} onClick={() => onSetDefault(role, model.providerId, model.id)}><strong>{model.name}</strong><span>{providerName.get(model.providerId) ?? model.providerId} · {model.id}</span></button>)}{matching.length === 0 && <div className="empty-state small">Register a model supporting the {role} role.</div>}</div>
+    </div>
+    <div className="panel-card compact-card">
+      <div className="section-header"><div><div className="panel-label">Model providers</div><h2>{models.providerCount} providers · {models.modelCount} models</h2></div></div>
+      <div className="provider-list">{models.providers.map((provider) => <div className="provider-card" key={provider.id}><div className="provider-title-row"><div><strong>{provider.name}</strong><span className={`provider-kind ${provider.kind}`}>{provider.kind}</span>{provider.builtIn && <span className="active-pill">BUILT-IN</span>}</div>{!provider.builtIn && <button className="danger-button" onClick={() => onRemoveProvider(provider.id)}>Remove</button>}</div><div className="provider-endpoint">{provider.endpoint}</div><div className="provider-meta"><span>{provider.authEnv ? `Auth: ${provider.authEnv}` : "No auth variable"}</span></div><div className="provider-model-list">{models.models.filter((model) => model.providerId === provider.id).map((model) => <div className="registered-model-row" key={model.id}><div><strong>{model.name}</strong><span>{model.id} · {model.roles.join(", ")}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} ctx` : ""}</span></div><button className="danger-button" onClick={() => onRemoveModel(provider.id, model.id)}>Remove</button></div>)}{models.models.every((model) => model.providerId !== provider.id) && <div className="empty-state small">No models registered.</div>}</div></div>)}</div>
+      <div className="model-note">Stage 5 keeps credentials out of the registry. Providers reference an environment-variable name only; inference is intentionally behind the future execution adapter.</div>
     </div>
   </section>;
 }
