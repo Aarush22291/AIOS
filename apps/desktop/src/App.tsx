@@ -484,9 +484,8 @@ function ModelsPage({ models, onRefresh, onRemoveProvider, onRemoveModel, onSetD
     setFormError("");
     if (!selectedDefault) {
       try {
-        const snapshot = await invoke<ModelsSnapshot>("clear_model_default", { role });
-        onSetDefault(role, "", "");
-        void snapshot;
+        await invoke<ModelsSnapshot>("clear_model_default", { role });
+        onRefresh();
       } catch (cause) { setFormError(String(cause)); }
       return;
     }
