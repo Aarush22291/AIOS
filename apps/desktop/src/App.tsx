@@ -410,72 +410,6 @@ function ProcessesPage({ runtime, runtimeRunning, processName, processGoal, maxC
   </section>;
 }
 
-function ModelsPage({
-  models, providerName, providerKind, providerEndpoint, providerAuthEnv, modelId, modelName, modelProviderId,
-  modelContextWindow, modelRoles, selectedRole, selectedDefault, busy, onProviderName, onProviderKind,
-  onProviderEndpoint, onProviderAuthEnv, onModelId, onModelName, onModelProviderId, onModelContextWindow,
-  onToggleRole, onSelectedRole, onSelectedDefault, onRegisterProvider, onRemoveProvider, onRegisterModel,
-  onRemoveModel, onApplyDefault,
-}: {
-  models: ModelsSnapshot;
-  providerName: string; providerKind: ProviderKind; providerEndpoint: string; providerAuthEnv: string;
-  modelId: string; modelName: string; modelProviderId: string; modelContextWindow: string;
-  modelRoles: ModelRole[]; selectedRole: ModelRole; selectedDefault: string; busy: boolean;
-  onProviderName: (v: string) => void; onProviderKind: (v: ProviderKind) => void;
-  onProviderEndpoint: (v: string) => void; onProviderAuthEnv: (v: string) => void;
-  onModelId: (v: string) => void; onModelName: (v: string) => void; onModelProviderId: (v: string) => void;
-  onModelContextWindow: (v: string) => void; onToggleRole: (v: ModelRole) => void;
-  onSelectedRole: (v: ModelRole) => void; onSelectedDefault: (v: string) => void;
-  onRegisterProvider: (e: FormEvent<HTMLFormElement>) => void; onRemoveProvider: (id: string) => void;
-  onRegisterModel: (e: FormEvent<HTMLFormElement>) => void; onRemoveModel: (providerId: string, id: string) => void;
-  onApplyDefault: () => void;
-}) {
-  const compatibleModels = models.models.filter((model) => model.enabled && model.roles.includes(selectedRole));
-  const providerMap = new Map(models.providers.map((provider) => [provider.id, provider]));
-  return <section className="models-layout">
-    <div className="panel-card registration-card">
-      <div className="panel-label">Provider registry</div><h2>Add a provider</h2>
-      <p className="body-copy">A provider stores transport metadata only. Credentials are referenced by environment-variable name, never copied into AIOS state.</p>
-      <form className="model-form" onSubmit={onRegisterProvider}>
-        <label>Name<input value={providerName} onChange={(event: InputChange) => onProviderName(event.currentTarget.value)} placeholder="e.g. Workstation LM" maxLength={120} /></label>
-        <label>Type<select value={providerKind} onChange={(event) => onProviderKind(event.currentTarget.value as ProviderKind)}><option value="local">Local</option><option value="cloud">Cloud</option></select></label>
-        <label>Endpoint<input value={providerEndpoint} onChange={(event: InputChange) => onProviderEndpoint(event.currentTarget.value)} placeholder="https://provider.example/v1" maxLength={300} /></label>
-        <label>Auth environment variable <span className="optional">optional</span><input value={providerAuthEnv} onChange={(event: InputChange) => onProviderAuthEnv(event.currentTarget.value)} placeholder="OPENAI_API_KEY" maxLength={80} /></label>
-        <button className="primary-button" type="submit" disabled={busy}>Register provider</button>
-      </form>
-      <div className="model-note">Built-in local and cloud-compatible provider templates are included. Add a model ID to use them.</div>
-    </div>
-
-    <div className="panel-card model-main-card">
-      <div className="section-header"><div><div className="panel-label">Model registry</div><h2>{models.modelCount} models · {models.providerCount} providers</h2></div></div>
-      <form className="model-form model-register-form" onSubmit={onRegisterModel}>
-        <label>Provider<select value={modelProviderId} onChange={(event) => onModelProviderId(event.currentTarget.value)}>{models.providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name} · {provider.kind}</option>)}</select></label>
-        <div className="model-two-col">
-          <label>Model ID<input value={modelId} onChange={(event: InputChange) => onModelId(event.currentTarget.value)} placeholder="qwen-coder" maxLength={120} /></label>
-          <label>Display name<input value={modelName} onChange={(event: InputChange) => onModelName(event.currentTarget.value)} placeholder="Qwen Coder" maxLength={120} /></label>
-        </div>
-        <label>Context window <span className="optional">optional</span><input type="number" min="1" value={modelContextWindow} onChange={(event: InputChange) => onModelContextWindow(event.currentTarget.value)} placeholder="e.g. 32768" /></label>
-        <div><div className="model-field-title">Roles</div><div className="role-toggle-row">{MODEL_ROLES.map((role) => <button type="button" key={role} className={`role-toggle ${modelRoles.includes(role) ? "selected" : ""}`} onClick={() => onToggleRole(role)}>{role}</button>)}</div></div>
-        <button className="primary-button" type="submit" disabled={busy || !modelProviderId}>Register model</button>
-      </form>
-
-      <div className="section-divider" />
-      <div className="section-header"><div><div className="panel-label">Role routing</div><h2>Default model by role</h2></div><button className="secondary-button small-button" onClick={onApplyDefault}>Apply selection</button></div>
-      <div className="model-routing"><label>Role<select value={selectedRole} onChange={(event) => onSelectedRole(event.currentTarget.value as ModelRole)}>{MODEL_ROLES.map((role) => <option key={role} value={role}>{role}</option>)}</select></label><label>Default model<select value={selectedDefault} onChange={(event) => onSelectedDefault(event.currentTarget.value)}><option value="">No default</option>{compatibleModels.map((model) => <option key={`${model.providerId}::${model.id}`} value={`${model.providerId}::${model.id}`}>{model.name} · {providerMap.get(model.providerId)?.name ?? model.providerId}</option>)}</select></label></div>
-
-      <div className="section-divider" />
-      <div className="provider-list">
-        {models.providers.map((provider) => <div className="provider-card" key={provider.id}>
-          <div className="provider-title-row"><div><strong>{provider.name}</strong><span className={`provider-kind ${provider.kind}`}>{provider.kind}</span>{provider.builtIn && <span className="active-pill">BUILT-IN</span>}</div>{!provider.builtIn && <button className="danger-button" onClick={() => onRemoveProvider(provider.id)}>Remove</button>}</div>
-          <div className="provider-endpoint">{provider.endpoint}</div>
-          <div className="provider-meta"><span>{provider.authEnv ? `Auth: ${provider.authEnv}` : "No auth variable"}</span><span>{models.models.filter((model) => model.providerId === provider.id).length} models</span></div>
-          <div className="provider-model-list">{models.models.filter((model) => model.providerId === provider.id).map((model) => <div className="registered-model-row" key={model.id}><div><strong>{model.name}</strong><span>{model.id} · {model.roles.join(", ")}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} ctx` : ""}</span></div><button className="danger-button" onClick={() => onRemoveModel(provider.id, model.id)}>Remove</button></div>)}{models.models.every((model) => model.providerId !== provider.id) && <div className="empty-state small">No models registered for this provider.</div>}</div>
-        </div>)}
-      </div>
-    </div>
-  </section>;
-}
-
 function ModelsPage({ models, onRefresh, onRemoveProvider, onRemoveModel, onSetDefault }: {
   models: ModelsSnapshot;
   onRefresh: () => void;
@@ -484,20 +418,126 @@ function ModelsPage({ models, onRefresh, onRemoveProvider, onRemoveModel, onSetD
   onSetDefault: (role: ModelRole, providerId: string, modelId: string) => void;
 }) {
   const [role, setRole] = useState<ModelRole>("general");
+  const [providerName, setProviderName] = useState("");
+  const [providerKind, setProviderKind] = useState<ProviderKind>("local");
+  const [endpoint, setEndpoint] = useState("http://127.0.0.1:11434/v1");
+  const [authEnv, setAuthEnv] = useState("");
+  const [modelId, setModelId] = useState("");
+  const [modelName, setModelName] = useState("");
+  const [providerId, setProviderId] = useState(models.providers[0]?.id ?? "");
+  const [contextWindow, setContextWindow] = useState("");
+  const [roles, setRoles] = useState<ModelRole[]>(["general"]);
+  const [selectedDefault, setSelectedDefault] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    if (!models.providers.some((provider) => provider.id === providerId)) {
+      setProviderId(models.providers[0]?.id ?? "");
+    }
+  }, [models.providers, providerId]);
+
+  useEffect(() => {
+    const current = models.defaults.find((item) => item.role === role);
+    setSelectedDefault(current ? `${current.providerId}::${current.modelId}` : "");
+  }, [models.defaults, role]);
+
   const matching = models.models.filter((model) => model.enabled && model.roles.includes(role));
-  const current = models.defaults.find((item) => item.role === role);
-  const providerName = new Map(models.providers.map((provider) => [provider.id, provider.name]));
+  const providerNameById = new Map(models.providers.map((provider) => [provider.id, provider.name]));
+
+  async function addProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setFormError(""); setBusy(true);
+    try {
+      const created = await invoke<ModelProviderInfo>("register_model_provider", {
+        name: providerName, kind: providerKind, endpoint, authEnv: authEnv.trim() || null,
+      });
+      setProviderName(""); setAuthEnv("");
+      setEndpoint(providerKind === "local" ? "http://127.0.0.1:11434/v1" : "https://api.openai.com/v1");
+      setProviderId(created.id);
+      onRefresh();
+    } catch (cause) { setFormError(String(cause)); }
+    finally { setBusy(false); }
+  }
+
+  async function addModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setFormError(""); setBusy(true);
+    if (!providerId) { setFormError("Register or select a provider first."); setBusy(false); return; }
+    try {
+      await invoke<ModelInfo>("register_model", {
+        providerId, modelId, name: modelName, roles,
+        contextWindow: parseOptionalInteger(contextWindow),
+      });
+      setModelId(""); setModelName(""); setContextWindow("");
+      setRoles(["general"]);
+      onRefresh();
+    } catch (cause) { setFormError(String(cause)); }
+    finally { setBusy(false); }
+  }
+
+  function toggleRole(nextRole: ModelRole) {
+    setRoles((current) => current.includes(nextRole)
+      ? (current.length === 1 ? current : current.filter((item) => item !== nextRole))
+      : [...current, nextRole]);
+  }
+
+  async function applyDefault() {
+    setFormError("");
+    if (!selectedDefault) {
+      try {
+        const snapshot = await invoke<ModelsSnapshot>("clear_model_default", { role });
+        onSetDefault(role, "", "");
+        void snapshot;
+      } catch (cause) { setFormError(String(cause)); }
+      return;
+    }
+    const [selectedProvider, selectedModel] = selectedDefault.split("::");
+    onSetDefault(role, selectedProvider, selectedModel);
+  }
+
   return <section className="models-layout">
-    <div className="panel-card compact-card">
-      <div className="section-header"><div><div className="panel-label">Model routing</div><h2>Role defaults</h2></div><button className="secondary-button small-button" onClick={onRefresh}>Refresh</button></div>
-      <label className="model-select-label">Role<select value={role} onChange={(event) => setRole(event.currentTarget.value as ModelRole)}>{["general","planner","coder","reviewer"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-      <div className="routing-current">{current ? `${providerName.get(current.providerId) ?? current.providerId} / ${current.modelId}` : "No default model selected"}</div>
-      <div className="routing-list">{matching.map((model) => <button key={`${model.providerId}::${model.id}`} className={`routing-option ${current?.providerId === model.providerId && current.modelId === model.id ? "selected" : ""}`} onClick={() => onSetDefault(role, model.providerId, model.id)}><strong>{model.name}</strong><span>{providerName.get(model.providerId) ?? model.providerId} · {model.id}</span></button>)}{matching.length === 0 && <div className="empty-state small">Register a model supporting the {role} role.</div>}</div>
+    <div className="models-left-column">
+      <div className="panel-card compact-card">
+        <div className="panel-label">Provider registry</div><h2>Add provider</h2>
+        <p className="body-copy">Local providers can point at localhost. Cloud providers reference an environment-variable name; AIOS does not store the secret.</p>
+        <form className="model-form" onSubmit={addProvider}>
+          <label>Name<input value={providerName} onChange={(event: InputChange) => setProviderName(event.currentTarget.value)} placeholder="e.g. Workstation LLM" maxLength={120} /></label>
+          <label>Type<select value={providerKind} onChange={(event) => {
+            const value = event.currentTarget.value as ProviderKind;
+            setProviderKind(value);
+            setEndpoint(value === "local" ? "http://127.0.0.1:11434/v1" : "https://api.openai.com/v1");
+            setAuthEnv(value === "local" ? "" : "OPENAI_API_KEY");
+          }}><option value="local">Local</option><option value="cloud">Cloud</option></select></label>
+          <label>Endpoint<input value={endpoint} onChange={(event: InputChange) => setEndpoint(event.currentTarget.value)} placeholder="https://provider.example/v1" maxLength={300} /></label>
+          <label>Auth environment variable <span className="optional">optional</span><input value={authEnv} onChange={(event: InputChange) => setAuthEnv(event.currentTarget.value)} placeholder="OPENAI_API_KEY" maxLength={80} /></label>
+          <button className="primary-button" type="submit" disabled={busy}>Register provider</button>
+        </form>
+      </div>
+
+      <div className="panel-card compact-card">
+        <div className="panel-label">Model catalog</div><h2>Add model</h2>
+        <form className="model-form" onSubmit={addModel}>
+          <label>Provider<select value={providerId} onChange={(event) => setProviderId(event.currentTarget.value)}>{models.providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
+          <div className="model-two-col"><label>Model ID<input value={modelId} onChange={(event: InputChange) => setModelId(event.currentTarget.value)} placeholder="qwen2.5-coder:7b" maxLength={120} /></label><label>Display name<input value={modelName} onChange={(event: InputChange) => setModelName(event.currentTarget.value)} placeholder="Qwen Coder 7B" maxLength={120} /></label></div>
+          <label>Context window <span className="optional">optional</span><input type="number" min="1" value={contextWindow} onChange={(event: InputChange) => setContextWindow(event.currentTarget.value)} placeholder="32768" /></label>
+          <div><div className="model-field-title">Roles</div><div className="role-toggle-row">{["general","planner","coder","reviewer"].map((item) => { const nextRole = item as ModelRole; return <button type="button" key={nextRole} className={`role-toggle ${roles.includes(nextRole) ? "selected" : ""}`} onClick={() => toggleRole(nextRole)}>{nextRole}</button>; })}</div></div>
+          <button className="primary-button" type="submit" disabled={busy || !providerId}>Register model</button>
+        </form>
+      </div>
+      {formError && <div className="error-banner">{formError}</div>}
     </div>
+
     <div className="panel-card compact-card">
-      <div className="section-header"><div><div className="panel-label">Model providers</div><h2>{models.providerCount} providers · {models.modelCount} models</h2></div></div>
-      <div className="provider-list">{models.providers.map((provider) => <div className="provider-card" key={provider.id}><div className="provider-title-row"><div><strong>{provider.name}</strong><span className={`provider-kind ${provider.kind}`}>{provider.kind}</span>{provider.builtIn && <span className="active-pill">BUILT-IN</span>}</div>{!provider.builtIn && <button className="danger-button" onClick={() => onRemoveProvider(provider.id)}>Remove</button>}</div><div className="provider-endpoint">{provider.endpoint}</div><div className="provider-meta"><span>{provider.authEnv ? `Auth: ${provider.authEnv}` : "No auth variable"}</span></div><div className="provider-model-list">{models.models.filter((model) => model.providerId === provider.id).map((model) => <div className="registered-model-row" key={model.id}><div><strong>{model.name}</strong><span>{model.id} · {model.roles.join(", ")}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} ctx` : ""}</span></div><button className="danger-button" onClick={() => onRemoveModel(provider.id, model.id)}>Remove</button></div>)}{models.models.every((model) => model.providerId !== provider.id) && <div className="empty-state small">No models registered.</div>}</div></div>)}</div>
-      <div className="model-note">Stage 5 keeps credentials out of the registry. Providers reference an environment-variable name only; inference is intentionally behind the future execution adapter.</div>
+      <div className="section-header"><div><div className="panel-label">Role routing</div><h2>Default model by role</h2></div><button className="secondary-button small-button" onClick={applyDefault}>Apply</button></div>
+      <div className="model-routing"><label>Role<select value={role} onChange={(event) => setRole(event.currentTarget.value as ModelRole)}>{["general","planner","coder","reviewer"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label>Default model<select value={selectedDefault} onChange={(event) => setSelectedDefault(event.currentTarget.value)}><option value="">No default</option>{matching.map((model) => <option key={`${model.providerId}::${model.id}`} value={`${model.providerId}::${model.id}`}>{model.name} · {providerNameById.get(model.providerId) ?? model.providerId}</option>)}</select></label></div>
+      <div className="section-divider" />
+      <div className="section-header"><div><div className="panel-label">Registered providers</div><h2>{models.providerCount} providers · {models.modelCount} models</h2></div><button className="secondary-button small-button" onClick={onRefresh}>Refresh</button></div>
+      <div className="provider-list">{models.providers.map((provider) => <div className="provider-card" key={provider.id}>
+        <div className="provider-title-row"><div><strong>{provider.name}</strong><span className={`provider-kind ${provider.kind}`}>{provider.kind}</span>{provider.builtIn && <span className="active-pill">BUILT-IN</span>}</div>{!provider.builtIn && <button className="danger-button" onClick={() => onRemoveProvider(provider.id)}>Remove</button>}</div>
+        <div className="provider-endpoint">{provider.endpoint}</div>
+        <div className="provider-meta"><span>{provider.authEnv ? `Auth: ${provider.authEnv}` : "No auth variable"}</span></div>
+        <div className="provider-model-list">{models.models.filter((model) => model.providerId === provider.id).map((model) => <div className="registered-model-row" key={model.id}><div><strong>{model.name}</strong><span>{model.id} · {model.roles.join(", ")}{model.contextWindow ? ` · ${model.contextWindow.toLocaleString()} ctx` : ""}</span></div><button className="danger-button" onClick={() => onRemoveModel(provider.id, model.id)}>Remove</button></div>)}{models.models.every((model) => model.providerId !== provider.id) && <div className="empty-state small">No models registered.</div>}</div>
+      </div>)}</div>
+      <div className="model-note">Stage 5 defines the model contract and routing layer. It deliberately stops before model inference, tool access, and sandbox enforcement.</div>
     </div>
   </section>;
 }
