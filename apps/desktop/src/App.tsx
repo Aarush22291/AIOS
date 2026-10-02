@@ -5,12 +5,23 @@ import "./App.css";
 
 type View = "overview" | "projects" | "processes";
 type RuntimeStatus = "stopped" | "running";
-type ProcessStatus = "created" | "running" | "stopped";
+type ProcessStatus = "created" | "running" | "paused" | "stopped" | "failed";
 type ProjectStatus = "ready" | "missing";
 type InputChange = { currentTarget: HTMLInputElement };
 type TextareaChange = { currentTarget: HTMLTextAreaElement };
 
-type ProcessInfo = { id: string; name: string; goal: string; status: ProcessStatus; createdAt: number };
+type ProcessResourceConfig = { maxCpuPercent: number | null; maxMemoryMb: number | null; maxRuntimeSeconds: number | null };
+type ProcessInfo = {
+  id: string;
+  name: string;
+  goal: string;
+  status: ProcessStatus;
+  resources: ProcessResourceConfig;
+  createdAt: number;
+  startedAt: number | null;
+  stoppedAt: number | null;
+  updatedAt: number;
+};
 type RuntimeEvent = { id: number; timestamp: number; kind: string; message: string };
 type RuntimeSnapshot = { version: string; status: RuntimeStatus; startedAt: number | null; uptimeSeconds: number; processCount: number; processes: ProcessInfo[]; events: RuntimeEvent[] };
 type RepositoryInfo = { root: string; name: string; vcs: string };
@@ -19,8 +30,8 @@ type ProjectsSnapshot = { version: string; activeProjectId: string | null; proje
 
 const RUNTIME_EVENT = "aios:runtime";
 const PROJECTS_EVENT = "aios:projects";
-const EMPTY_RUNTIME: RuntimeSnapshot = { version: "0.3.0", status: "stopped", startedAt: null, uptimeSeconds: 0, processCount: 0, processes: [], events: [] };
-const EMPTY_PROJECTS: ProjectsSnapshot = { version: "0.3.0", activeProjectId: null, projectCount: 0, projects: [] };
+const EMPTY_RUNTIME: RuntimeSnapshot = { version: "0.4.0", status: "stopped", startedAt: null, uptimeSeconds: 0, processCount: 0, processes: [], events: [] };
+const EMPTY_PROJECTS: ProjectsSnapshot = { version: "0.4.0", activeProjectId: null, projectCount: 0, projects: [] };
 
 function App() {
   const [view, setView] = useState<View>("overview");
@@ -30,6 +41,9 @@ function App() {
   const [workspace, setWorkspace] = useState("");
   const [processName, setProcessName] = useState("");
   const [processGoal, setProcessGoal] = useState("");
+  const [maxCpuPercent, setMaxCpuPercent] = useState("");
+  const [maxMemoryMb, setMaxMemoryMb] = useState("");
+  const [maxRuntimeSeconds, setMaxRuntimeSeconds] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -100,10 +114,31 @@ function App() {
     if (!runtimeRunning) { setError("Start the AIOS runtime before creating a process."); return; }
     setBusy(true);
     try {
-      await invoke<ProcessInfo>("create_process", { name: processName, goal: processGoal });
-      setProcessName(""); setProcessGoal("");
+      await invoke<ProcessInfo>("create_process", {
+        name: processName,
+        goal: processGoal,
+        resources: {
+          maxCpuPercent: parseOptionalInteger(maxCpuPercent),
+          maxMemoryMb: parseOptionalInteger(maxMemoryMb),
+          maxRuntimeSeconds: parseOptionalInteger(maxRuntimeSeconds),
+        },
+      });
+      setProcessName("");
+      setProcessGoal("");
+      setMaxCpuPercent("");
+      setMaxMemoryMb("");
+      setMaxRuntimeSeconds("");
     } catch (cause) { setError(String(cause)); }
     finally { setBusy(false); }
+  }
+
+  async function transitionProcess(command: "start_process" | "pause_process" | "resume_process" | "stop_process", id: string) {
+    setError("");
+    try {
+      setRuntime(await invoke<RuntimeSnapshot>(command, { id }));
+    } catch (cause) {
+      setError(String(cause));
+    }
   }
 
   return (
@@ -131,7 +166,23 @@ function App() {
         {error && <div className="error-banner">{error}</div>}
         {view === "overview" && <Overview runtime={runtime} runtimeRunning={runtimeRunning} uptime={uptime} activeProject={activeProject} projectCount={projects.projectCount} onProjects={() => setView("projects")} onProcesses={() => setView("processes")} />}
         {view === "projects" && <ProjectsPage projects={projects} projectName={projectName} workspace={workspace} busy={busy} onProjectName={setProjectName} onWorkspace={setWorkspace} onSubmit={handleRegisterProject} onActivate={(id) => void setActiveProject(id)} onRemove={(id) => void removeProject(id)} onRefresh={() => void refreshProjects()} />}
-        {view === "processes" && <ProcessesPage runtime={runtime} runtimeRunning={runtimeRunning} processName={processName} processGoal={processGoal} busy={busy} onName={setProcessName} onGoal={setProcessGoal} onSubmit={handleCreateProcess} />}
+        {view === "processes" && <ProcessesPage
+          runtime={runtime}
+          runtimeRunning={runtimeRunning}
+          processName={processName}
+          processGoal={processGoal}
+          maxCpuPercent={maxCpuPercent}
+          maxMemoryMb={maxMemoryMb}
+          maxRuntimeSeconds={maxRuntimeSeconds}
+          busy={busy}
+          onName={setProcessName}
+          onGoal={setProcessGoal}
+          onMaxCpuPercent={setMaxCpuPercent}
+          onMaxMemoryMb={setMaxMemoryMb}
+          onMaxRuntimeSeconds={setMaxRuntimeSeconds}
+          onSubmit={handleCreateProcess}
+          onTransition={(command, id) => void transitionProcess(command, id)}
+        />}
       </main>
     </div>
   );
@@ -181,10 +232,104 @@ function ProjectsPage({ projects, projectName, workspace, busy, onProjectName, o
   </section>;
 }
 
-function ProcessesPage({ runtime, runtimeRunning, processName, processGoal, busy, onName, onGoal, onSubmit }: { runtime: RuntimeSnapshot; runtimeRunning: boolean; processName: string; processGoal: string; busy: boolean; onName: (value: string) => void; onGoal: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function ProcessesPage({
+  runtime,
+  runtimeRunning,
+  processName,
+  processGoal,
+  maxCpuPercent,
+  maxMemoryMb,
+  maxRuntimeSeconds,
+  busy,
+  onName,
+  onGoal,
+  onMaxCpuPercent,
+  onMaxMemoryMb,
+  onMaxRuntimeSeconds,
+  onSubmit,
+  onTransition,
+}: {
+  runtime: RuntimeSnapshot;
+  runtimeRunning: boolean;
+  processName: string;
+  processGoal: string;
+  maxCpuPercent: string;
+  maxMemoryMb: string;
+  maxRuntimeSeconds: string;
+  busy: boolean;
+  onName: (value: string) => void;
+  onGoal: (value: string) => void;
+  onMaxCpuPercent: (value: string) => void;
+  onMaxMemoryMb: (value: string) => void;
+  onMaxRuntimeSeconds: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onTransition: (command: "start_process" | "pause_process" | "resume_process" | "stop_process", id: string) => void;
+}) {
   return <section className="content-grid">
-    <div className="panel-card process-card"><div className="section-header"><div><div className="panel-label">Process registration</div><h2>Create a process</h2></div><span className="count-chip">{runtime.processCount}</span></div><form className="process-form" onSubmit={onSubmit}><label>Name<input value={processName} onChange={(event: InputChange) => onName(event.currentTarget.value)} placeholder="e.g. Repository Planner" maxLength={80} /></label><label>Goal<textarea value={processGoal} onChange={(event: TextareaChange) => onGoal(event.currentTarget.value)} placeholder="What should this process accomplish?" maxLength={240} rows={4} /></label><button type="submit" className="primary-button" disabled={busy || !runtimeRunning}>{runtimeRunning ? "Create process" : "Start runtime first"}</button></form></div>
-    <div className="panel-card process-card"><div className="panel-label">Registered processes</div><h2>Current runtime state</h2><div className="process-list">{runtime.processes.map((process) => <div className="process-row" key={process.id}><div><div className="process-title-row"><strong>{process.name}</strong><span>{process.id}</span></div><div className="process-goal">{process.goal}</div></div><span className={`process-status ${process.status}`}>{process.status}</span></div>)}{runtime.processes.length === 0 && <div className="empty-state small">No AI processes registered yet.</div>}</div></div>
+    <div className="panel-card process-card">
+      <div className="section-header">
+        <div><div className="panel-label">Process registration</div><h2>Create a process</h2></div>
+        <span className="count-chip">{runtime.processCount}</span>
+      </div>
+      <form className="process-form" onSubmit={onSubmit}>
+        <label>Name
+          <input value={processName} onChange={(event: InputChange) => onName(event.currentTarget.value)} placeholder="e.g. Repository Planner" maxLength={80} />
+        </label>
+        <label>Goal
+          <textarea value={processGoal} onChange={(event: TextareaChange) => onGoal(event.currentTarget.value)} placeholder="What should this process accomplish?" maxLength={240} rows={4} />
+        </label>
+        <div className="resource-section">
+          <div className="resource-heading">Resource configuration <span>reserved for future enforcement</span></div>
+          <div className="resource-grid">
+            <label>Max CPU %
+              <input type="number" min="1" max="100" value={maxCpuPercent} onChange={(event: InputChange) => onMaxCpuPercent(event.currentTarget.value)} placeholder="No limit" />
+            </label>
+            <label>Max memory MB
+              <input type="number" min="1" value={maxMemoryMb} onChange={(event: InputChange) => onMaxMemoryMb(event.currentTarget.value)} placeholder="No limit" />
+            </label>
+            <label>Max runtime sec
+              <input type="number" min="1" value={maxRuntimeSeconds} onChange={(event: InputChange) => onMaxRuntimeSeconds(event.currentTarget.value)} placeholder="No limit" />
+            </label>
+          </div>
+        </div>
+        <button type="submit" className="primary-button" disabled={busy || !runtimeRunning}>{runtimeRunning ? "Create process" : "Start runtime first"}</button>
+      </form>
+    </div>
+    <div className="panel-card process-card">
+      <div className="panel-label">Registered processes</div>
+      <h2>Lifecycle manager</h2>
+      <div className="process-list">
+        {runtime.processes.map((process) => (
+          <div className="process-row" key={process.id}>
+            <div className="process-main">
+              <div className="process-title-row">
+                <strong>{process.name}</strong>
+                <span>{process.id}</span>
+              </div>
+              <div className="process-goal">{process.goal}</div>
+              <div className="process-meta">
+                <span>{formatResources(process.resources)}</span>
+                {process.startedAt ? <span>Started {formatTimestamp(process.startedAt)}</span> : <span>Not started</span>}
+              </div>
+            </div>
+            <div className="process-actions">
+              <span className={`process-status ${process.status}`}>{process.status}</span>
+              {process.status === "created" || process.status === "stopped" ? (
+                <button className="secondary-button small-button" onClick={() => onTransition("start_process", process.id)}>Start</button>
+              ) : process.status === "running" ? (
+                <button className="secondary-button small-button" onClick={() => onTransition("pause_process", process.id)}>Pause</button>
+              ) : process.status === "paused" ? (
+                <button className="secondary-button small-button" onClick={() => onTransition("resume_process", process.id)}>Resume</button>
+              ) : null}
+              {(process.status === "running" || process.status === "paused") && (
+                <button className="danger-button" onClick={() => onTransition("stop_process", process.id)}>Stop</button>
+              )}
+            </div>
+          </div>
+        ))}
+        {runtime.processes.length === 0 && <div className="empty-state small">No AI processes registered yet.</div>}
+      </div>
+    </div>
   </section>;
 }
 
@@ -192,6 +337,23 @@ function RepoInline({ repository }: { repository: RepositoryInfo }) { return <di
 function Metric({ label, value }: { label: string; value: string }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
 function FlowNode({ title, subtitle }: { title: string; subtitle: string }) { return <div className="flow-node"><strong>{title}</strong><span>{subtitle}</span></div>; }
 function pageTitle(view: View) { return view === "projects" ? "Project Spaces" : view === "processes" ? "AI Processes" : "Control Plane"; }
+function parseOptionalInteger(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function formatResources(resources: ProcessResourceConfig) {
+  const values = [
+    resources.maxCpuPercent !== null ? `CPU ≤ ${resources.maxCpuPercent}%` : null,
+    resources.maxMemoryMb !== null ? `RAM ≤ ${resources.maxMemoryMb} MB` : null,
+    resources.maxRuntimeSeconds !== null ? `Time ≤ ${resources.maxRuntimeSeconds}s` : null,
+  ].filter(Boolean);
+  return values.length ? values.join(" · ") : "No resource limits configured";
+}
+function formatTimestamp(timestamp: number) {
+  return new Date(timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 function formatDuration(totalSeconds: number) { const hours = Math.floor(totalSeconds / 3600); const minutes = Math.floor((totalSeconds % 3600) / 60); const seconds = totalSeconds % 60; if (hours > 0) return `${hours}h ${minutes}m`; if (minutes > 0) return `${minutes}m ${seconds}s`; return `${seconds}s`; }
 
 export default App;

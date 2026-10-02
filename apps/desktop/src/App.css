@@ -136,3 +136,17 @@ textarea { resize: vertical; min-height: 100px; }
   .hero-grid, .projects-layout, .content-grid { grid-template-columns: 1fr; }
   .registration-card { position: static; }
 }
+
+.resource-section { margin-top: 2px; padding: 12px; border: 1px solid #1b2533; border-radius: 11px; background: #0d131c; }
+.resource-heading { color: #8794a8; font-size: 11px; }
+.resource-heading span { margin-left: 5px; color: #56647a; font-size: 10px; }
+.resource-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.process-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 7px; color: #59677b; font-size: 10px; }
+.process-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; flex: 0 0 auto; }
+.process-status.paused { color: #c8b27a; background: #282216; }
+.process-status.stopped { color: #8996aa; background: #151c29; }
+.process-status.created { color: #a7b3c6; background: #171e2a; }
+.process-status.failed { color: #d99ba3; background: #241317; }
+@media (max-width: 1180px) {
+  .resource-grid { grid-template-columns: 1fr; }
+}
