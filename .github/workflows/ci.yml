@@ -23,6 +23,9 @@ jobs:
           test -f apps/desktop/package-lock.json
           echo "AIOS repository structure OK"
 
+      - name: Validate Tauri command permissions
+        run: node scripts/check-tauri-acl.mjs
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
