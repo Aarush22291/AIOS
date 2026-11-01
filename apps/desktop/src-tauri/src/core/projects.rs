@@ -93,6 +93,9 @@ impl ProjectsState {
         if project_name.is_empty() {
             return Err("Project name cannot be empty".to_string());
         }
+        if project_name.chars().count() > 80 {
+            return Err("Project name must be 80 characters or fewer".to_string());
+        }
 
         let mut inner = self.inner.lock().map_err(|_| "project state lock poisoned".to_string())?;
 
@@ -248,6 +251,9 @@ fn canonicalize_workspace(raw: &str) -> Result<PathBuf, String> {
     let value = raw.trim();
     if value.is_empty() {
         return Err("Workspace path cannot be empty".to_string());
+    }
+    if value.chars().count() > 500 {
+        return Err("Workspace path must be 500 characters or fewer".to_string());
     }
 
     let path = Path::new(value);
